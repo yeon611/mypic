@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>MyPic</title>
+  <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=c488c1bf269f66cf75e1e6b7b672754f"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; font-family: -apple-system, 'Noto Sans KR', sans-serif; background: #000; }
+
+    /* 지도 */
+    #map { width: 100%; height: 100%; position: fixed; inset: 0; }
+
+    /* FAB 버튼 */
+    #fab {
+      position: fixed;
+      bottom: 32px; right: 20px;
+      width: 56px; height: 56px;
+      border-radius: 50%;
+      background: #FEE500;
+      border: none;
+      font-size: 28px;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      z-index: 100;
+      display: flex; align-items: center; justify-content: center;
+      transition: transform .15s;
+    }
+    #fab:active { transform: scale(.92); }
+
+    /* 바텀 시트 공통 */
+    .sheet-backdrop {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.45);
+      z-index: 200;
+    }
+    .sheet-backdrop.show { display: block; }
+
+    .sheet {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: #fff;
+      border-radius: 20px 20px 0 0;
+      z-index: 201;
+      transform: translateY(100%);
+      transition: transform .3s cubic-bezier(.32,.72,0,1);
+      max-height: 92vh;
+      overflow-y: auto;
+    }
+    .sheet.show { transform: translateY(0); }
+
+    .sheet-handle {
+      width: 40px; height: 4px;
+      background: #ddd; border-radius: 2px;
+      margin: 12px auto 0;
+    }
+    .sheet-body { padding: 16px 20px 40px; }
+    .sheet-title { font-size: 17px; font-weight: 700; color: #111; margin-bottom: 16px; }
+
+    /* 추가 시트 */
+    .photo-preview {
+      width: 100%; height: 220px;
+      border-radius: 14px;
+      background: #f0f0f0;
+      overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 12px;
+      position: relative;
+    }
+    .photo-preview img { width: 100%; height: 100%; object-fit: cover; }
+    .photo-preview .empty {
+      display: flex; flex-direction: column; align-items: center;
+      color: #bbb; font-size: 13px; gap: 8px;
+    }
+    .photo-preview .empty-icon { font-size: 40px; }
+
+    .pick-row { display: flex; gap: 10px; margin-bottom: 16px; }
+    .pick-btn {
+      flex: 1; padding: 12px;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 12px;
+      background: #fff;
+      font-size: 14px; font-weight: 600;
+      cursor: pointer;
+      transition: background .1s;
+    }
+    .pick-btn:active { background: #f5f5f5; }
+
+    .comment-input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 12px;
+      font-size: 15px;
+      resize: none; height: 80px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color .2s;
+      margin-bottom: 8px;
+    }
+    .comment-input:focus { border-color: #FEE500; }
+
+    .location-badge {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: #888;
+      margin-bottom: 16px;
+    }
+    .location-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #4CAF50;
+      flex-shrink: 0;
+    }
+    .location-dot.loading { background: #FFC107; }
+    .location-dot.error { background: #f44336; }
+
+    .save-btn {
+      width: 100%; padding: 16px;
+      background: #FEE500;
+      border: none; border-radius: 14px;
+      font-size: 16px; font-weight: 700;
+      color: #3C1E1E;
+      cursor: pointer;
+      transition: background .1s;
+    }
+    .save-btn:active { background: #f0d800; }
+    .save-btn:disabled { background: #eee; color: #aaa; }
+
+    /* 상세 시트 */
+    #detail-sheet .photo-full {
+      width: 100%; border-radius: 14px;
+      max-height: 280px; object-fit: cover;
+      display: block;
+      margin-bottom: 14px;
+    }
+    .detail-comment {
+      font-size: 15px; color: #222;
+      line-height: 1.6; margin-bottom: 10px;
+      min-height: 20px;
+    }
+    .detail-meta {
+      font-size: 12px; color: #aaa;
+      margin-bottom: 20px;
+    }
+
+    /* 리스트 뷰 (여러 사진) */
+    .pin-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 4px; }
+    .pin-list-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px;
+      border: 1.5px solid #f0f0f0;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: background .1s;
+    }
+    .pin-list-item:active { background: #fafafa; }
+    .pin-list-thumb {
+      width: 64px; height: 64px; border-radius: 10px;
+      object-fit: cover; flex-shrink: 0;
+    }
+    .pin-list-info { flex: 1; min-width: 0; }
+    .pin-list-comment {
+      font-size: 14px; color: #333;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      margin-bottom: 4px;
+    }
+    .pin-list-date { font-size: 11px; color: #aaa; }
+
+    .delete-btn {
+      width: 100%; padding: 14px;
+      border: 1.5px solid #ff4444;
+      border-radius: 14px;
+      background: #fff; color: #ff4444;
+      font-size: 14px; font-weight: 600;
+      cursor: pointer;
+      margin-top: 12px;
+    }
+    .delete-btn:active { background: #fff0f0; }
+
+    .back-btn {
+      display: flex; align-items: center; gap: 6px;
+      background: none; border: none;
+      font-size: 14px; color: #555;
+      cursor: pointer; margin-bottom: 14px;
+      padding: 0;
+    }
+
+    /* 마커 스타일 */
+    .map-marker {
+      position: relative;
+      cursor: pointer;
+    }
+    .map-marker-img {
+      width: 56px; height: 56px;
+      border-radius: 50%;
+      border: 3px solid #FEE500;
+      object-fit: cover;
+      box-shadow: 0 2px 8px rgba(0,0,0,.35);
+      display: block;
+    }
+    .map-marker-tail {
+      width: 0; height: 0;
+      border-left: 7px solid transparent;
+      border-right: 7px solid transparent;
+      border-top: 9px solid #FEE500;
+      margin: 0 auto;
+    }
+    .map-marker-count {
+      position: absolute;
+      top: -4px; right: -4px;
+      background: #ff4444;
+      color: #fff;
+      font-size: 11px; font-weight: 700;
+      width: 20px; height: 20px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      border: 2px solid #fff;
+    }
+
+    #input-camera, #input-gallery { display: none; }
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+<button id="fab">+</button>
+
+<!-- 추가 시트 -->
+<div class="sheet-backdrop" id="add-backdrop"></div>
+<div class="sheet" id="add-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-body">
+    <div class="sheet-title">📸 사진 추가</div>
+
+    <div class="photo-preview" id="photo-preview">
+      <div class="empty">
+        <span class="empty-icon">🖼️</span>
+        아래 버튼으로 사진을 선택하세요
+      </div>
+    </div>
+
+    <div class="pick-row">
+      <button class="pick-btn" onclick="document.getElementById('input-camera').click()">📷 카메라</button>
+      <button class="pick-btn" onclick="document.getElementById('input-gallery').click()">🖼️ 갤러리</button>
+    </div>
+
+    <input type="file" id="input-camera" accept="image/*" capture="environment" />
+    <input type="file" id="input-gallery" accept="image/*" />
+
+    <textarea class="comment-input" id="comment-input" placeholder="코멘트 입력 (선택사항)"></textarea>
+
+    <div class="location-badge">
+      <div class="location-dot loading" id="loc-dot"></div>
+      <span id="loc-text">위치 가져오는 중...</span>
+    </div>
+
+    <button class="save-btn" id="save-btn" disabled>저장</button>
+  </div>
+</div>
+
+<!-- 상세 시트 -->
+<div class="sheet-backdrop" id="detail-backdrop"></div>
+<div class="sheet" id="detail-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-body" id="detail-body"></div>
+</div>
+
+<script>
+// ── IndexedDB ──────────────────────────────────────────
+const DB = (() => {
+  let db;
+  const open = () => new Promise((res, rej) => {
+    const req = indexedDB.open('mypic_v1', 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore('pins', { keyPath: 'id' });
+    req.onsuccess = e => { db = e.target.result; res(); };
+    req.onerror = rej;
+  });
+  const tx = mode => db.transaction('pins', mode).objectStore('pins');
+  const wrap = req => new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = rej; });
+  return {
+    init: open,
+    getAll: () => wrap(tx('readonly').getAll()),
+    add: pin => wrap(tx('readwrite').add(pin)),
+    delete: id => wrap(tx('readwrite').delete(id)),
+  };
+})();
+
+// ── 거리 계산 (미터) ──────────────────────────────────
+function distM(a, b) {
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad;
+  const dLng = (b.lng - a.lng) * rad;
+  const s = Math.sin(dLat/2)**2 + Math.cos(a.lat*rad)*Math.cos(b.lat*rad)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
+}
+
+// ── 핀 클러스터링 (30m 이내 묶기) ────────────────────
+function clusterPins(pins) {
+  const used = new Set(), clusters = [];
+  for (let i = 0; i < pins.length; i++) {
+    if (used.has(i)) continue;
+    const group = [pins[i]]; used.add(i);
+    for (let j = i+1; j < pins.length; j++) {
+      if (!used.has(j) && distM(pins[i], pins[j]) < 30) { group.push(pins[j]); used.add(j); }
+    }
+    clusters.push(group);
+  }
+  return clusters;
+}
+
+// ── 지도 ──────────────────────────────────────────────
+const map = new kakao.maps.Map(document.getElementById('map'), {
+  center: new kakao.maps.LatLng(37.5665, 126.9780),
+  level: 5
+});
+
+let overlays = [];
+
+function clearOverlays() { overlays.forEach(o => o.setMap(null)); overlays = []; }
+
+function renderMarkers(pins) {
+  clearOverlays();
+  clusterPins(pins).forEach(group => {
+    const rep = group[0];
+    const id = 'ov_' + group.map(p=>p.id).join('_');
+    const count = group.length;
+    const content = document.createElement('div');
+    content.className = 'map-marker';
+    content.id = id;
+    content.innerHTML = `
+      <img class="map-marker-img" src="${rep.image}" />
+      ${count > 1 ? `<div class="map-marker-count">${count}</div>` : ''}
+      <div class="map-marker-tail"></div>
+    `;
+    content.addEventListener('click', () => openDetail(group));
+
+    const ov = new kakao.maps.CustomOverlay({
+      position: new kakao.maps.LatLng(rep.lat, rep.lng),
+      content,
+      yAnchor: 1.2
+    });
+    ov.setMap(map);
+    overlays.push(ov);
+  });
+}
+
+// ── GPS ───────────────────────────────────────────────
+let currentLat = null, currentLng = null;
+
+function getGPS() {
+  return new Promise((res, rej) => {
+    if (!navigator.geolocation) { rej('미지원'); return; }
+    navigator.geolocation.getCurrentPosition(
+      p => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      () => rej('권한 거부'),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  });
+}
+
+// ── FAB / 추가 시트 ──────────────────────────────────
+let currentImage = null;
+
+function openAddSheet() {
+  currentImage = null;
+  document.getElementById('photo-preview').innerHTML =
+    `<div class="empty"><span class="empty-icon">🖼️</span>아래 버튼으로 사진을 선택하세요</div>`;
+  document.getElementById('comment-input').value = '';
+  document.getElementById('save-btn').disabled = true;
+  setLocStatus('loading', '위치 가져오는 중...');
+  currentLat = null; currentLng = null;
+
+  showSheet('add');
+
+  getGPS().then(loc => {
+    currentLat = loc.lat; currentLng = loc.lng;
+    setLocStatus('ok', `위도 ${loc.lat.toFixed(5)}, 경도 ${loc.lng.toFixed(5)}`);
+    updateSaveBtn();
+  }).catch(() => {
+    setLocStatus('error', '위치를 가져올 수 없습니다');
+  });
+}
+
+function setLocStatus(state, text) {
+  const dot = document.getElementById('loc-dot');
+  dot.className = 'location-dot' + (state === 'loading' ? ' loading' : state === 'error' ? ' error' : '');
+  document.getElementById('loc-text').textContent = text;
+}
+
+function updateSaveBtn() {
+  document.getElementById('save-btn').disabled = !(currentImage && currentLat);
+}
+
+['input-camera','input-gallery'].forEach(id => {
+  document.getElementById(id).addEventListener('change', e => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      currentImage = ev.target.result;
+      document.getElementById('photo-preview').innerHTML = `<img src="${currentImage}" />`;
+      updateSaveBtn();
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  });
+});
+
+document.getElementById('fab').addEventListener('click', openAddSheet);
+
+document.getElementById('save-btn').addEventListener('click', async () => {
+  if (!currentImage || !currentLat) return;
+  const pin = {
+    id: Date.now(),
+    lat: currentLat, lng: currentLng,
+    image: currentImage,
+    comment: document.getElementById('comment-input').value.trim(),
+    date: new Date().toLocaleString('ko-KR')
+  };
+  await DB.add(pin);
+  allPins.push(pin);
+  renderMarkers(allPins);
+  map.setCenter(new kakao.maps.LatLng(pin.lat, pin.lng));
+  hideSheet('add');
+});
+
+// ── 상세 시트 ─────────────────────────────────────────
+function openDetail(group) {
+  const body = document.getElementById('detail-body');
+
+  if (group.length === 1) {
+    renderDetailSingle(body, group[0], group);
+  } else {
+    renderDetailList(body, group);
+  }
+  showSheet('detail');
+}
+
+function renderDetailSingle(body, pin, group) {
+  const backBtn = group.length > 1
+    ? `<button class="back-btn" id="back-to-list">← 목록으로</button>` : '';
+  body.innerHTML = `
+    ${backBtn}
+    <img class="photo-full" src="${pin.image}" />
+    <div class="detail-comment">${pin.comment || '<span style="color:#bbb">코멘트 없음</span>'}</div>
+    <div class="detail-meta">📍 ${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}<br>🕐 ${pin.date}</div>
+    <button class="delete-btn" id="del-btn">🗑️ 삭제</button>
+  `;
+  if (group.length > 1) {
+    body.querySelector('#back-to-list').addEventListener('click', () => renderDetailList(body, group));
+  }
+  body.querySelector('#del-btn').addEventListener('click', async () => {
+    if (!confirm('이 사진을 삭제할까요?')) return;
+    await DB.delete(pin.id);
+    allPins = allPins.filter(p => p.id !== pin.id);
+    renderMarkers(allPins);
+    const remaining = group.filter(p => p.id !== pin.id);
+    if (remaining.length === 0) { hideSheet('detail'); }
+    else if (remaining.length === 1) { renderDetailSingle(body, remaining[0], remaining); }
+    else { renderDetailList(body, remaining); }
+  });
+}
+
+function renderDetailList(body, group) {
+  const items = group.map(pin => `
+    <div class="pin-list-item" data-id="${pin.id}">
+      <img class="pin-list-thumb" src="${pin.image}" />
+      <div class="pin-list-info">
+        <div class="pin-list-comment">${pin.comment || '코멘트 없음'}</div>
+        <div class="pin-list-date">${pin.date}</div>
+      </div>
+    </div>
+  `).join('');
+  body.innerHTML = `
+    <div class="sheet-title">📌 이 위치의 사진 ${group.length}장</div>
+    <div class="pin-list">${items}</div>
+  `;
+  body.querySelectorAll('.pin-list-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const pin = group.find(p => p.id === Number(el.dataset.id));
+      if (pin) renderDetailSingle(body, pin, group);
+    });
+  });
+}
+
+// ── 시트 열기/닫기 ────────────────────────────────────
+function showSheet(name) {
+  document.getElementById(`${name}-backdrop`).classList.add('show');
+  setTimeout(() => document.getElementById(`${name}-sheet`).classList.add('show'), 10);
+}
+function hideSheet(name) {
+  document.getElementById(`${name}-sheet`).classList.remove('show');
+  setTimeout(() => document.getElementById(`${name}-backdrop`).classList.remove('show'), 300);
+}
+
+['add','detail'].forEach(name => {
+  document.getElementById(`${name}-backdrop`).addEventListener('click', () => hideSheet(name));
+});
+
+// ── 초기화 ────────────────────────────────────────────
+let allPins = [];
+
+(async () => {
+  await DB.init();
+  allPins = await DB.getAll();
+  renderMarkers(allPins);
+
+  // 현재 위치로 지도 이동
+  getGPS().then(loc => {
+    map.setCenter(new kakao.maps.LatLng(loc.lat, loc.lng));
+    map.setLevel(4);
+  }).catch(() => {});
+})();
+</script>
+</body>
+</html>
